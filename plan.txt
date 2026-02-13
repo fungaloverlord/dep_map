@@ -1,0 +1,155 @@
+## Purpose
+
+Build a tool that scans SAS programs on remote SFTP servers, extracts metadata,
+parses code for database operations and inter-program dependencies, and stores
+the results in a dependency graph for impact analysis.
+
+The core question it answers: "If I change this program or table, what else is affected?"
+
+
+## Data Sources
+
+- Remote SAS files read via SFTP (Paramiko)
+- Regex patterns and known librefs loaded from an external config file
+
+
+## What Gets Extracted
+
+### File Metadata
+- All stat fields available from SFTP (size, mtime, atime, permissions, etc.)
+- UID resolved to actual username
+- Full remote path
+
+### Table Operations (Oracle & Snowflake)
+Writes (creates):
+- DATA lib.table (DATA step output)
+- PROC SQL; CREATE TABLE lib.table
+- PROC SQL; INSERT INTO lib.table
+- PROC APPEND BASE=lib.table
+- Pass-through SQL: EXECUTE(CREATE TABLE ...) on CONNECT TO ORACLE/SNOWFLAKE
+
+Reads (references):
+- SET, MERGE, UPDATE in DATA steps
+- FROM / JOIN clauses in PROC SQL
+- Pass-through SQL: EXECUTE(SELECT ... FROM ...) on CONNECT TO ORACLE/SNOWFLAKE
+
+### Program-to-Program Dependencies
+- %INCLUDE / %include directives (one program includes another)
+- Macro definitions (%macro name) and macro calls (%name) across files
+- Macro definitions live in a dedicated directory (specified in config)
+  - Scan this directory first to build the macro catalog (name → file path)
+  - Only parse %macro definitions in the macro directory, not elsewhere
+  - All other directories are scanned only for macro calls (%name)
+  - The macro directory is a high-impact zone: any edit there can ripple widely
+
+### Hardcoded Credential Detection
+- Flag any credentials that are literal values instead of macro variable references
+- Expected safe pattern: password=&sf_password, user=&user (macro variable)
+- Flagged pattern: password=hunter2, user=jsmith (hardcoded literal)
+- Matches patterns like password=, pwd=, user=, uid= where value is not &-prefixed
+- Stored as list of findings per program: ([LINE#] snippet) for each occurrence
+
+### LIBNAME Resolution
+- If a table CAN be referenced by a program through logic or a macro, it counts as impacting
+  that program — err on the side of inclusion
+- Oracle: LIBNAME statements are never dynamic, parse them directly
+- Snowflake: follows specific patterns:
+  - When %datalab_connections macro is present, these variables are set:
+    %let sf_database_old=ILS_DATALAB_SBX_DB;
+    %let sf_schema_old=DATALAB_ILSNP;
+    %let sf_database=LIS_DTALAB_WRKGRP_SPC_DB;
+    %let sf_schema=DL_T1_ILS_ANALYTICS;
+  - Snowflake writes are only in scope when targeting LIS_DTALAB_WRKGRP_SPC_DB or DATALAB_ILSNP
+- When a macro variable is used for a table reference, use the last value that variable
+  was set to (%let) within the program
+- If a libref/variable cannot be resolved, mark as "unknown" rather than skipping
+
+
+## Storage
+
+- SQLite for development and local runs
+- All output tables built as pandas DataFrames before writing to SQLite
+- Final production delivery: user takes the DataFrames/tables and writes to Snowflake
+- No storage abstraction layer — pandas is the interface
+
+
+## Output Schema
+
+programs:
+  - program_path (PK)
+  - file metadata columns (owner, size, mtime, atime, permissions, etc.)
+  - scan_timestamp (when this file was last parsed)
+  - credential_findings (list of "[LINE#] snippet" entries, null if clean)
+
+table_operations:
+  - program_path (FK → programs)
+  - table_name (schema-qualified)
+  - database_type (oracle | snowflake)
+  - operation_type (create | read)
+  - source_line (line number in SAS file for traceability)
+
+program_dependencies:
+  - source_program (FK → programs, the file that includes/calls)
+  - target_program (FK → programs, the file being included/called)
+  - dependency_type (include | macro_call)
+
+libname_mappings:
+  - libref
+  - engine (oracle | snowflake | base | etc.)
+  - source (parsed | config)
+
+
+## Dependency Graph
+
+- Not a separate data structure — derived at query time from stored table_operations
+  and program_dependencies data
+- Transitive impact analysis via recursive queries: A creates table X → B reads X
+  and creates Y → C reads Y means changing A impacts B and C
+- Queryable upstream ("what feeds this program") and downstream ("what does this affect")
+
+
+## Scanning Strategy
+
+- Config provides a list of remote root directories to scan, plus a dedicated macro directory
+- Scan order: macro directory first (build macro catalog), then all other roots
+- Each root is walked recursively — every .sas file under it is discovered
+- Dependencies are tracked across directory boundaries (a program under /prod/etl
+  can %include a file under /shared/macros, or read a table created by a program
+  in a completely different root)
+- The full set of roots is treated as one unified codebase for dependency resolution
+- Incremental: track file mtime from metadata, only re-parse files that changed since last scan
+- Store previous scan state in the database
+- Support full rescan as a fallback option
+
+
+## Config File
+
+Connection & paths (loaded from .env):
+- SFTP_HOST, SFTP_PORT, SFTP_USER, SFTP_PASSWORD
+- List of remote root directories to scan (multiple entries)
+- Dedicated macro directory path (scanned first, only source of %macro definitions)
+- File extensions to include (default: .sas)
+- Known libref-to-engine mappings
+
+## Regex Patterns File (single file, all patterns)
+
+All regex used by the parser lives in one dedicated file, organized by category.
+The parser code never contains inline regex — it loads patterns by category name.
+Adding a new edge case or adjusting a pattern is always a config edit, not a code change.
+
+Categories:
+- table_write: DATA step output, CREATE TABLE, INSERT INTO, PROC APPEND, pass-through writes
+- table_read: SET/MERGE/UPDATE, FROM/JOIN, pass-through reads
+- include: %INCLUDE directives
+- macro_def: %macro definitions (used only in macro directory scan)
+- macro_call: %name invocations
+- libname: LIBNAME statements
+- credentials: password=, pwd=, user=, uid= with literal (non-&) values
+- (extensible — new categories can be added as needs arise)
+
+
+## Resolved
+
+- Output: queryable database only, no reports/visualizations
+- SFTP auth: password-based
+- SFTP connection details loaded from .env file (not committed to version control)

@@ -1,0 +1,140 @@
+# SAS Mapper — All regex patterns organized by category
+# Each entry: pattern (regex string), flags (list), groups (capture group index → semantic name)
+# Parser code loads this file and compiles patterns — no inline regex in code.
+
+table_write:
+  - name: data_step_output
+    pattern: '(?i)\bDATA\s+(?!_null_)(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: create_table
+    pattern: '(?i)\bCREATE\s+TABLE\s+(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: insert_into
+    pattern: '(?i)\bINSERT\s+INTO\s+(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: proc_append
+    pattern: '(?i)\bPROC\s+APPEND\s+BASE\s*=\s*(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: passthrough_write
+    pattern: '(?i)EXECUTE\s*\(\s*(?:CREATE\s+TABLE|INSERT\s+INTO)\s+(?:(\w+)\.)?(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: schema
+      2: table
+
+table_read:
+  - name: set_merge_update
+    pattern: '(?i)\b(?:SET|MERGE|UPDATE)\s+(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: additional_dataset_ref
+    pattern: '(?i)(?:(?:SET|MERGE|UPDATE)\s+\w+\.\w+.*?\s+)(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: from_join
+    pattern: '(?i)\b(?:FROM|JOIN)\s+(\w+)\.(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: table
+
+  - name: passthrough_read
+    pattern: '(?i)EXECUTE\s*\(\s*SELECT\b.*?\bFROM\s+(?:(\w+)\.)?(\w+)'
+    flags: [IGNORECASE, DOTALL]
+    groups:
+      1: schema
+      2: table
+
+include:
+  - name: include_directive
+    pattern: '(?i)%INCLUDE\s+[''"]([^''"]+)[''"]'
+    flags: [IGNORECASE]
+    groups:
+      1: path
+
+  - name: include_unquoted
+    pattern: '(?i)%INCLUDE\s+(\S+\.sas)'
+    flags: [IGNORECASE]
+    groups:
+      1: path
+
+macro_def:
+  - name: macro_definition
+    pattern: '(?i)%MACRO\s+(\w+)'
+    flags: [IGNORECASE]
+    groups:
+      1: name
+
+macro_call:
+  - name: macro_invocation
+    pattern: '(?i)%(?!IF\b|THEN\b|ELSE\b|DO\b|END\b|LET\b|PUT\b|MACRO\b|MEND\b|GLOBAL\b|LOCAL\b|INCLUDE\b|SYSFUNC\b|EVAL\b|STR\b|NRSTR\b|BQUOTE\b|NRBQUOTE\b|SUPERQ\b|UNQUOTE\b|SCAN\b|SUBSTR\b|UPCASE\b|LOWCASE\b|LENGTH\b|INDEX\b|TRIM\b|LEFT\b|RIGHT\b|COMPRESS\b|TRANWRD\b|CATX\b|CATS\b|CATT\b|CAT\b|SYMEXIST\b|SYMGET\b|SYMPUT\b|SYSEVALF\b|DATALAB_CONNECTIONS\b|NRQUOTE\b|QSCAN\b|QSUBSTR\b|QUPCASE\b|QLOWCASE\b|QTRIM\b|QLEFT\b|QRIGHT\b|QCOMPRESS\b|QSYSFUNC\b|ABORT\b|COPY\b|DISPLAY\b|GOTO\b|INPUT\b|RETURN\b|RUN\b|SYSEXEC\b|WINDOW\b|LIST\b|QCMPRES\b|CMPRES\b)(\w+)\b'
+    flags: [IGNORECASE]
+    groups:
+      1: name
+
+libname:
+  - name: libname_oracle
+    pattern: '(?i)\bLIBNAME\s+(\w+)\s+ORACLE\b[^;]*PATH\s*=\s*[''"]?(\w+)[''"]?[^;]*SCHEMA\s*=\s*[''"]?(\w+)[''"]?'
+    flags: [IGNORECASE, DOTALL]
+    groups:
+      1: libref
+      2: path
+      3: schema
+
+  - name: libname_snowflake
+    pattern: '(?i)\bLIBNAME\s+(\w+)\s+SNOW\b[^;]*(?:DATABASE\s*=\s*[''"]?(&?\w+)[''"]?)[^;]*(?:SCHEMA\s*=\s*[''"]?(&?\w+)[''"]?)'
+    flags: [IGNORECASE, DOTALL]
+    groups:
+      1: libref
+      2: database
+      3: schema
+
+  - name: libname_base
+    pattern: '(?i)\bLIBNAME\s+(\w+)\s+[''"]([^''"]+)[''"]'
+    flags: [IGNORECASE]
+    groups:
+      1: libref
+      2: path
+
+credentials:
+  - name: password_literal
+    pattern: '(?i)\b(?:PASSWORD|PWD)\s*=\s*(?!&)([^\s;,''")]+)'
+    flags: [IGNORECASE]
+    groups:
+      1: value
+
+  - name: user_literal
+    pattern: '(?i)\b(?:USER|UID)\s*=\s*(?!&)([^\s;,''")]+)'
+    flags: [IGNORECASE]
+    groups:
+      1: value
+
+let_statement:
+  - name: let_assignment
+    pattern: '(?i)%LET\s+(\w+)\s*=\s*([^;]*)'
+    flags: [IGNORECASE]
+    groups:
+      1: variable
+      2: value

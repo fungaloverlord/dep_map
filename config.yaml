@@ -1,0 +1,37 @@
+# SAS Mapper Configuration
+
+# Remote directories to scan (walked recursively)
+scan_roots:
+  - /path/to/sas/programs
+  # Add more roots as needed:
+  # - /path/to/another/root
+
+# Dedicated macro directory — scanned first to build macro catalog
+# Only %macro definitions are extracted from files in this directory
+macro_directory: /path/to/macros
+
+# File extensions to scan
+extensions:
+  - .sas
+
+# SQLite database path (relative to project root)
+database: sas_mapper.db
+
+# Known libref-to-engine mappings (used as fallback when LIBNAME not parsed)
+known_librefs:
+  # oracle librefs
+  # myora: oracle
+  # snowflake librefs
+  # sf: snowflake
+
+# Snowflake defaults — applied when %datalab_connections macro is detected
+datalab_defaults:
+  sf_database_old: ILS_DATALAB_SBX_DB
+  sf_schema_old: DATALAB_ILSNP
+  sf_database: LIS_DTALAB_WRKGRP_SPC_DB
+  sf_schema: DL_T1_ILS_ANALYTICS
+
+# Snowflake databases where writes are considered in-scope
+snowflake_write_scope:
+  - LIS_DTALAB_WRKGRP_SPC_DB
+  - DATALAB_ILSNP
