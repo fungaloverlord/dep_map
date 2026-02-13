@@ -242,6 +242,29 @@ def _process_file(conn, sftp, path, stat_attrs, source, patterns,
                 "in_scope": 1,
             })
 
+        # Parse credentials
+        cred_findings = parse_credentials(source, patterns)
+        cred_json = None
+        if cred_findings:
+            cred_json = json.dumps(
+                [f"[{c['line']}] {c['pattern_name']}: {c['value']}" for c in cred_findings]
+            )
+
+        # Store program record (parent row must exist before child rows)
+        prog_df = pd.DataFrame([{
+            "program_path": path,
+            "file_size": stat_attrs.st_size,
+            "file_mtime": stat_attrs.st_mtime,
+            "file_atime": stat_attrs.st_atime,
+            "file_uid": stat_attrs.st_uid,
+            "file_gid": stat_attrs.st_gid,
+            "file_mode": stat_attrs.st_mode,
+            "owner": str(stat_attrs.st_uid),
+            "scan_timestamp": now,
+            "credential_findings": cred_json,
+        }])
+        upsert_programs(conn, prog_df)
+
         # Combine and store table operations
         all_ops = write_records + read_records
         ops_df = pd.DataFrame(all_ops) if all_ops else pd.DataFrame()
@@ -273,28 +296,6 @@ def _process_file(conn, sftp, path, stat_attrs, source, patterns,
         deps_df = pd.DataFrame(dep_records) if dep_records else pd.DataFrame()
         upsert_program_dependencies(conn, path, deps_df)
 
-        # Parse credentials
-        cred_findings = parse_credentials(source, patterns)
-        cred_json = None
-        if cred_findings:
-            cred_json = json.dumps(
-                [f"[{c['line']}] {c['pattern_name']}: {c['value']}" for c in cred_findings]
-            )
-
-        # Store program record
-        prog_df = pd.DataFrame([{
-            "program_path": path,
-            "file_size": stat_attrs.st_size,
-            "file_mtime": stat_attrs.st_mtime,
-            "file_atime": stat_attrs.st_atime,
-            "file_uid": stat_attrs.st_uid,
-            "file_gid": stat_attrs.st_gid,
-            "file_mode": stat_attrs.st_mode,
-            "owner": str(stat_attrs.st_uid),
-            "scan_timestamp": now,
-            "credential_findings": cred_json,
-        }])
-        upsert_programs(conn, prog_df)
         conn.commit()
 
     except Exception as e:

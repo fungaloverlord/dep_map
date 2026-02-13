@@ -68,8 +68,12 @@ def _walk_recursive(sftp, path, extensions, results, depth, max_depth):
 
 def read_file(sftp, path):
     """Read a remote file and return contents as string."""
-    with sftp.open(path, "r") as f:
-        return f.read().decode("utf-8", errors="replace")
+    with sftp.open(path, "rb") as f:
+        f.prefetch()
+        data = f.read()
+    if isinstance(data, str):
+        return data
+    return data.decode("utf-8", errors="replace")
 
 
 def close(sftp):
